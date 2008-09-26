@@ -1,0 +1,15 @@
+<% title "Extracts" %>
+
+<% for extract in @extracts %>
+  <div class="extract">
+    <h2><%= link_to h(extract.title), extract_path(extract) %></h2>
+    <% unless extract.completed_at.nil? %>
+      Completed at: <%= extract.completed_at.to_s(:long) %><br />
+    <% end %>
+    <%= link_to "Edit", edit_extract_path(extract) %> |
+    <%= link_to "Destroy", extract, :confirm => 'Are you sure?', :method => :delete %> |
+    <%= link_to "Submit", submit_extract_path(extract), :confirm => 'Are you sure?', :method => :post %>
+  </div>
+<% end %>
+
+<p><%= link_to "New Extract", new_extract_path %></p>

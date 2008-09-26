@@ -1,0 +1,12 @@
+<%= error_messages_for :extract %>
+<% form_for @extract do |f| %>
+  <p>
+    <%= f.label :extract_type %><br />
+    <%= f.select :extract_type, [ ['DataDirector Roster Export', 'DataDirectorExtract'] ] %>
+  </p>
+  <p>
+    <%= f.label :options %><br />
+    <%= f.text_area :options %>
+  </p>
+  <p><%= f.submit "Submit" %></p>
+<% end %>

@@ -1,0 +1,36 @@
+<% title "Extract" %>
+
+<p>
+  <strong>Type:</strong>
+  <%=h @extract.extract_type %>
+</p>
+<p>
+  <strong>Options:</strong>
+  <%=h @extract.options %>
+</p>
+<p>
+  <strong>Status:</strong>
+  <%=h @extract.status %>
+</p>
+<p>
+  <strong>Results:</strong>
+  <%=h @extract.results %>
+</p>
+<p>
+  <strong>Results File:</strong>
+  <%= link_to h(@extract.results_basename), @extract.results_download_path %>
+</p>
+<p>
+  <strong>Sumbitted At:</strong>
+  <%=h @extract.submitted_at %>
+</p>
+<p>
+  <strong>Completed At:</strong>
+  <%=h @extract.completed_at %>
+</p>
+
+<p>
+  <%= link_to "Edit", edit_extract_path(@extract) %> |
+  <%= link_to "Destroy", @extract, :confirm => 'Are you sure?', :method => :delete %> |
+  <%= link_to "View All", extracts_path %>
+</p>

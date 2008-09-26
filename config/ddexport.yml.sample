@@ -1,0 +1,5 @@
+src_db: 
+  adapter: ODBC
+  database: powerschool_odbc_dsn
+  user: powerschool_user_name
+  password: powerschool_password
