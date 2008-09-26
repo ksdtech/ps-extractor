@@ -1,0 +1,28 @@
+ps-extractor Rails application
+Background processing to create DataDirector import files.
+
+Rails app adapted (actually just copied) from Ryan Bates's RailsCasts example 
+at http://railscasts.com/episodes/128-starling-and-workling
+
+Thank you, Ryan, for your succinct example!  Built on Rails 2.1.0 with 
+these required gems:
+
+starling 0.9.8 (gem install starling)
+
+And these plugins:
+
+workling 0.2.4 (script/plugin install http://svn.playtype.net/plugins/workling/)
+
+Before starting application server, you must create a starling daemon, and 
+a workling client daemon:
+
+starling -d -P tmp/pids/starling.pid -q log/
+script/workling_starling_client start
+
+Uses DBI connection to extract data from PowerSchool Premier database.  DBI
+connect string (to ODBC data source) is configured in the file 
+config/ddexport.yml.  A sample is provided.
+
+For more information, contact pzingg AT kentfieldschools FULLSTOP org
+
+
