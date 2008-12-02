@@ -12,15 +12,16 @@ require 'dbi'
 # cc.txt
 
 class Hash
-  def symbolize_keys_r!
-    keys.each do |key|
-      val = self[key]
-      val.symbolize_keys! if val.is_a?(Hash)
-      unless key.is_a?(Symbol)
-        self[key.to_sym] = val
-        delete(key)
-      end
+  def symbolize_keys_r
+    inject({}) do |options, (key, value)|
+      value.replace(value.symbolize_keys_r) if value.is_a?(Hash)
+      options[(key.to_sym rescue key) || key] = value
+      options
     end
+  end  
+  
+  def symbolize_keys_r!
+    self.replace(self.symbolize_keys_r)
     self
   end
 end
@@ -32,14 +33,21 @@ class DataDirectorExporter
   ### the 'Fields' or 'FieldsTable' field.   The ID number of
   ### the record corresponding to the field Name is what you want.
 
+  # sybase -> convert(char(10), st.SchoolEntryDate, 101) AS SchoolEntryDate
+  # oracle -> TO_CHAR(st.SchoolEntryDate, MM/DD/YYYY') AS SchoolEntryDate
+
+
+  # sybase -> convert(int, st.Student_Number) AS Student_Number
+  # oracle -> TO_NUMBER(st.Student_Number) AS Student_Number
+
   QUERIES = {
   :student_query => %{ SELECT st.ID,
   st.State_StudentNumber,
-  convert(int, st.Student_Number) AS Student_Number,
+  TO_NUMBER(st.Student_Number) AS Student_Number,
   st.SchoolID,
   st.First_Name,
   st.Last_Name,
-  convert(char(10), st.DOB, 101) AS DOB,
+  TO_CHAR(st.DOB, 'MM/DD/YYYY') AS DOB,
   st.Ethnicity,
   st.Gender,
   st.Enroll_Status,
@@ -53,10 +61,10 @@ class DataDirectorExporter
   st.State,
   st.Zip,
   st.Home_Phone,
-  convert(char(10), st.SchoolEntryDate, 101) AS SchoolEntryDate,
-  convert(char(10), st.DistrictEntryDate, 101) AS DistrictEntryDate,
-  convert(char(10), st.EntryDate, 101) AS EntryDate,
-  convert(char(10), st.ExitDate, 101) AS ExitDate,
+  TO_CHAR(st.SchoolEntryDate, 'MM/DD/YYYY') AS SchoolEntryDate,
+  TO_CHAR(st.DistrictEntryDate, 'MM/DD/YYYY') AS DistrictEntryDate,
+  TO_CHAR(st.EntryDate, 'MM/DD/YYYY') AS EntryDate,
+  TO_CHAR(st.ExitDate, 'MM/DD/YYYY') AS ExitDate,
   sch.Alternate_School_Number,
   hl.Value AS CA_HomeLanguage,
   lf.Value AS CA_LangFluency,
@@ -66,55 +74,67 @@ class DataDirectorExporter
   rfep.Value AS CA_DateRFEP
   FROM Students st
   LEFT OUTER JOIN Schools sch ON sch.School_Number=st.SchoolID
-  LEFT OUTER JOIN CustomText mf ON (mf.FieldNo=223 AND mf.KeyNo=st.DCID)
-  LEFT OUTER JOIN CustomText ff ON (ff.FieldNo=222 AND ff.KeyNo=st.DCID)
-  LEFT OUTER JOIN CustomText hl ON (hl.FieldNo=629 AND hl.KeyNo=st.DCID)
-  LEFT OUTER JOIN CustomText lf ON (lf.FieldNo=163 AND lf.KeyNo=st.DCID)
-  LEFT OUTER JOIN CustomText fs ON (fs.FieldNo=899 AND fs.KeyNo=st.DCID)
-  LEFT OUTER JOIN CustomText pd ON (pd.FieldNo=168AND pd.KeyNo=st.DCID)
-  LEFT OUTER JOIN CustomText pe ON (pe.FieldNo=125 AND pe.KeyNo=st.DCID)
-  LEFT OUTER JOIN CustomText rfep ON (rfep.FieldNo=312 AND rfep.KeyNo=st.DCID) }, 
+  LEFT OUTER JOIN CustomText mf ON (mf.FieldNo={{Mother_First}} AND mf.KeyNo=st.DCID)
+  LEFT OUTER JOIN CustomText ff ON (ff.FieldNo={{Father_First}} AND ff.KeyNo=st.DCID)
+  LEFT OUTER JOIN CustomText hl ON (hl.FieldNo={{CA_HomeLanguage}} AND hl.KeyNo=st.DCID)
+  LEFT OUTER JOIN CustomText lf ON (lf.FieldNo={{CA_LangFluency}} AND lf.KeyNo=st.DCID)
+  LEFT OUTER JOIN CustomText fs ON (fs.FieldNo={{CA_FirstUSASchooling}} AND fs.KeyNo=st.DCID)
+  LEFT OUTER JOIN CustomText pd ON (pd.FieldNo={{CA_PrimDisability}} AND pd.KeyNo=st.DCID)
+  LEFT OUTER JOIN CustomText pe ON (pe.FieldNo={{CA_ParentEd}} AND pe.KeyNo=st.DCID)
+  LEFT OUTER JOIN CustomText rfep ON (rfep.FieldNo={{CA_DateRFEP}} AND rfep.KeyNo=st.DCID) }, 
   
   :teacher_query => %{ 
   SELECT t.ID, t.TeacherNumber, t.SchoolID, 
   sch.Alternate_School_Number, 
   t.First_Name, t.Last_Name, t.Email_Addr,
-  t.Status, t.StaffStatus, tdd.String_Value AS DataDirector_Access 
+  t.Status, t.StaffStatus 
   FROM Teachers t
-  LEFT OUTER JOIN Schools sch ON sch.School_Number=t.schoolID
-  LEFT OUTER JOIN PVSIS_Custom_Teachers tdd ON (tdd.Field_Name='DataDirector_Access' AND tdd.TeacherID=t.DCID) },
+  LEFT OUTER JOIN Schools sch ON sch.School_Number=t.schoolID },
   
   :school_query => %{ SELECT sch.Name, sch.School_Number,
   sch.Low_Grade, sch.High_Grade, sch.Alternate_School_Number
-  FROM Schools sch}, 
+  FROM Schools sch }, 
   
   :course_query => %{ SELECT c.Course_Number, c.Course_Name, c.Credit_Hours, 
-  c.CreditType, cl.String_Value AS CA_CourseLevel, 
-  c.SchoolID, sch.Alternate_School_Number 
+  c.CreditType, cl.Value AS CA_CourseLevel, 
+  c.SchoolID, sch.Alternate_School_Number
   FROM Courses c 
-  LEFT OUTER JOIN PVSIS_Custom_Courses cl ON (cl.Field_Name='CA_CourseLevel' AND cl.CourseID=c.ID) 
-  LEFT OUTER JOIN Schools sch ON sch.School_Number=c.SchoolID },
+  LEFT OUTER JOIN Schools sch ON sch.School_Number=c.SchoolID 
+  LEFT OUTER JOIN CustomText cl ON (cl.FieldNo={{CA_CourseLevel:300}} AND cl.KeyNo=c.ID) },
   
   :roster_query => %{ Select cc.TermID, st.State_StudentNumber, cc.StudentID, 
+  f.TeacherNumber, cc.TeacherID, cc.SchoolID, 
+  sch.Alternate_School_Number, st.Grade_Level, 
+  cc.Expression, t.Abbreviation, 
+  cc.Course_Number, cc.Section_Number, cc.SectionID 
+  FROM cc
+  LEFT OUTER JOIN Students st ON st.ID=cc.StudentID 
+  LEFT OUTER JOIN Teachers f ON f.ID=cc.TeacherID 
+  LEFT OUTER JOIN Schools sch ON sch.School_Number=cc.SchoolID 
+  LEFT OUTER JOIN Terms t ON (t.ID=ABS(cc.TermID)) },
+
+  :roster_query_reenrollments => %{ Select cc.TermID, st.State_StudentNumber, cc.StudentID, 
   f.TeacherNumber, cc.TeacherID, cc.SchoolID, 
   sch.Alternate_School_Number, re.Grade_Level, 
   cc.Expression, t.Abbreviation, 
   cc.Course_Number, cc.Section_Number, cc.SectionID 
-  FROM CC 
+  FROM cc
   LEFT OUTER JOIN Students st ON st.ID=cc.StudentID 
   LEFT OUTER JOIN Teachers f ON f.ID=cc.TeacherID 
   LEFT OUTER JOIN Schools sch ON sch.School_Number=cc.SchoolID 
   LEFT OUTER JOIN Terms t ON (t.ID=ABS(cc.TermID))
   LEFT OUTER JOIN ReEnrollments re ON (re.StudentID=st.ID AND re.EntryDate<=cc.DateEnrolled AND re.ExitDate>=cc.DateLeft) },
-  
+
   :reenrollment_query => %{ SELECT st.State_StudentNumber, re.StudentID, re.SchoolID,
   sch.Alternate_School_Number, re.Grade_Level, 
-  convert(char(10), re.EntryDate, 101) AS EntryDate, re.EntryCode, 
-  convert(char(10), re.ExitDate, 101) AS ExitDate, re.ExitCode 
+  TO_CHAR(re.EntryDate, 'MM/DD/YYYY') AS EntryDate, 
+  TO_CHAR(re.ExitDate, 'MM/DD/YYYY') AS ExitDate
   FROM ReEnrollments re
   LEFT OUTER JOIN Students st ON st.ID=re.StudentID
-  LEFT OUTER JOIN Schools sch ON sch.School_Number=re.SchoolID  } }
+  LEFT OUTER JOIN Schools sch ON sch.School_Number=re.SchoolID } 
 
+  }
+  
   TERM_ABBRS = {
     '01-02' => 'Y',
     '02-03' => 'Y',
@@ -139,6 +159,8 @@ class DataDirectorExporter
   }
   
   def initialize(year_only=nil, root_d=nil, conf_file='ddexport.yml')
+    root_d = File.dirname(__FILE__) if root_d.nil?
+    conf_file = File.join(root_d, '../config', conf_file) unless conf_file[0,1] == '/'
     @year_only = year_only
     @dbh = nil
     @config = YAML.load_file(conf_file)
@@ -150,8 +172,8 @@ class DataDirectorExporter
     @enrollments = { }
     @teacher_years = { }
     @log_lines = [ ]
+    @custom_fields = { }
     @zip_name = "kentfield-#{Time.now.strftime("%Y%m%d")}"
-    root_d = File.dirname(__FILE__) if root_d.nil?
     @root_dir = File.expand_path(root_d)
     @input_dir = File.join(@root_dir, 'psexport')
     @output_dir = File.join(@root_dir, @zip_name)
@@ -169,29 +191,56 @@ class DataDirectorExporter
     "#{@output_dir}.zip"
   end
   
+  def custom_field_number(field)
+    field, fileno = field.split(/:/)
+    fileno = 100 unless fileno
+    key = "#{field.downcase}:#{fileno}"
+    if !@custom_fields.key?(field)
+      field_id = 0
+      sql = "SELECT ID FROM FieldsTable WHERE FileNo=#{fileno} AND REGEXP_LIKE(Name,'#{field}','i')"
+      row = @dbh.select_one(sql)
+      field_id = row[0].to_i if row
+      puts "#{key} -> #{field_id}"
+      @custom_fields[key] = field_id
+    end
+    @custom_fields[key]
+  end
+  
   def run_query(query_name, fname, min_termid=nil)
     log "processing #{query_name}..."
     num_rows = 0
-    sql = QUERIES[query_name]
+    sql = QUERIES[query_name].gsub(/\{\{([^}]+)\}\}/) do |field|
+      custom_field_number($1)
+    end
     if query_name == :roster_query && !min_termid.nil?
       sql << " WHERE ABS(cc.TermID)>=#{min_termid}"
     end
-    sth = @dbh.execute(sql)
-    f = nil
-	  while row = sth.fetch do
-	    if f.nil?
-	      f = File.open(fname, "w")
-        f.write row.column_names.join("\t")
-        f.write "\n"
-	    end
-      vals = [ ] 
-      row.each_with_name { |val, name| vals << val }
-	    f.write vals.join("\t")
-	    f.write "\n"
-	    num_rows += 1
-	  end
-    log " #{num_rows} rows written to #{fname}"
-	  sth.finish
+    begin
+      puts "executing #{sql}"
+      sth = @dbh.execute(sql)
+      f = nil
+  	  while row = sth.fetch do
+  	    if f.nil?
+  	      f = File.open(fname, "w")
+          f.write row.column_names.join("\t")
+          f.write "\n"
+  	    end
+        vals = [ ] 
+        row.each_with_name do |val, name|
+          val = val.to_i if val.is_a?(BigDecimal)
+          vals << val
+        end
+  	    f.write vals.join("\t")
+  	    f.write "\n"
+  	    num_rows += 1
+  	  end
+      log " #{num_rows} rows written to #{fname}"
+  	  sth.finish
+  	rescue DBI::DatabaseError => e
+  	  log " query error: #{$!}"
+  	rescue
+  	  raise
+  	end
   end
   
   def connect_db
@@ -199,8 +248,10 @@ class DataDirectorExporter
     dsn = "dbi:#{@config[:src_db][:adapter]}:#{@config[:src_db][:database]}"
 	  begin
 	    @dbh = DBI.connect(dsn, @config[:src_db][:user], @config[:src_db][:password])
+	    puts "connection open"
 	  rescue
 	    log "could not open #{dsn}: #{$!}"
+	    puts results
 	    exit
 	  end
   end
@@ -214,15 +265,17 @@ class DataDirectorExporter
     if @dbh
       min_termid = @year_only.nil? ? nil : year_abbr_to_term(@year_only)
       File.makedirs(@input_dir) if !File.directory?(@input_dir)
-      
+
       run_query(:school_query,  "#{@input_dir}/schools.txt")
+      run_query(:course_query,  "#{@input_dir}/courses.txt")
       run_query(:student_query, "#{@input_dir}/students.txt")
       run_query(:reenrollment_query, "#{@input_dir}/reenrollments.txt")
       run_query(:teacher_query, "#{@input_dir}/teachers.txt")
-      run_query(:course_query,  "#{@input_dir}/courses.txt")
       run_query(:roster_query,  "#{@input_dir}/cc.txt", min_termid)
       
       disconnect_db
+      puts results
+      exit
     end
   end
   
@@ -326,11 +379,12 @@ class DataDirectorExporter
   end
   
   def analyze_cc_data
-    excluded_courses = [ 'AAAA', 'oooo',  # Attendance
+    excluded_courses = [ 'AAAA', 'oooo' ]  # Attendance
+    non_excluded_courses = [
       '0500', '1500', '2500', '3500', '4500', # Bacich Library
       '0820', '1820', '2820', '3820', '4820', # Bacich Art
       '0830', '1830', '2830', '3830', '4830', # Bacich Tech
-      '0880', '1880', '2880', '3880', '4880', # Bacich Music
+      '0880', '1880', '2880', '3880', '4880', # Bacich Musicß
       '0881', '1881', '2881', '3881', '4881', # Bacich Chorus
       '0700', '1700', '2700', '3700', '4700', # Bacich PE
       ]
@@ -598,7 +652,7 @@ class DataDirectorExporter
         y += 1900
       end
     end
-    raise "invalid year" if y.nil? || y < 1940 || y > 2008
+    raise "invalid year" if y.nil? || y < 1940 || y > 2015
     return Date.new(y, m, d)
   end
   
@@ -620,3 +674,9 @@ class DataDirectorExporter
     sprintf("%02d-%02d", (year_number + 90) % 100, (year_number + 91) % 100)
   end
 end
+
+dde = DataDirectorExporter.new('08-09')
+#dde.run_powerschool_queries
+dde.process_files
+
+
